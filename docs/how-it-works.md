@@ -398,6 +398,8 @@ Output:
 
 Screening is intentionally lightweight. It avoids summarizing hundreds of papers.
 
+The screening `relevance_score` is an LLM judgment, not a deterministic formula. It is used only to choose which papers make it into the summarization shortlist. It is not the score displayed in the final results unless we later choose to expose it.
+
 ### Summarization
 
 File: `src/lit_agg/openai/summarizer.py`
@@ -447,6 +449,74 @@ Output:
 ```
 
 Ranked papers are sorted descending by `relevance_score`.
+
+### How relevance scores are assigned
+
+The displayed relevance score is not computed by a hand-written metric such as TF-IDF, cosine similarity, citation count, recency, or category overlap. It is assigned by the LLM using the ranking prompt and returned as structured JSON.
+
+The ranking prompt gives the model a rubric:
+
+```text
+Score each paper from 0-10:
+- 9-10: Directly relevant, high-impact, must-read
+- 7-8: Strongly relevant, notable contribution
+- 5-6: Moderately relevant or interesting
+- 3-4: Tangentially related
+- 0-2: Not relevant
+```
+
+The model is also instructed to be conservative and to base its judgment only on the provided title, categories, summary, and key contribution.
+
+For default query mode, relevance means relevance to the user query:
+
+```bash
+lit-agg "charged holographic disorder"
+```
+
+For digest mode, relevance means relevance to the selected interest profile description:
+
+```bash
+lit-agg digest --profile causal-inference --since 1w
+```
+
+Digest mode therefore has two relevance-scoring stages:
+
+1. **Screening score** from `src/lit_agg/openai/screener.py`
+   - input: profile description plus title/abstract/categories/date
+   - purpose: choose which fetched candidates are worth summarizing
+   - not currently displayed as the final score
+2. **Final ranking score** from `src/lit_agg/openai/ranker.py`
+   - input: query/profile description plus title/categories/generated summary/key contribution
+   - purpose: determine final display order
+   - this is the score shown in the output panels
+
+### Determinism and reproducibility
+
+Relevance scores are not fully deterministic. The ranker currently uses a low but nonzero temperature:
+
+```python
+temperature=0.1
+```
+
+This makes rankings relatively stable, but two runs can still differ because:
+
+- the model samples from a distribution at nonzero temperature
+- some providers/models are nondeterministic even at `temperature=0`
+- summaries produced earlier in the pipeline can vary between runs
+- arXiv candidate results can change over time
+- provider-side model updates can change behavior
+
+Treat `relevance_score` as a useful model-judged heuristic rather than a calibrated, reproducible metric.
+
+Possible future improvements for reproducibility and transparency:
+
+- set ranking temperature to `0`
+- cache summaries and rankings
+- export run metadata and all scores to JSON
+- include both screening and final ranking scores in exported output
+- add deterministic baseline scores such as BM25/TF-IDF similarity
+- add rubric sub-scores, e.g. topical match, methodological relevance, novelty, usefulness
+- run multiple rankings and average scores when higher reliability is worth the extra cost
 
 ## Display
 

@@ -440,6 +440,27 @@ For each, save output JSON/Markdown and manually rate:
 - diversity
 - score calibration
 
+### Score calibration and reproducibility
+
+Current displayed relevance scores are LLM-assigned 0-10 judgments, not deterministic metrics. Evaluation work should track whether those scores are useful and stable enough for decision-making.
+
+Things to measure:
+
+- Do 9-10 scores correspond to papers a human would consider must-read?
+- Are 7-8 scores consistently strong but less urgent?
+- Are weak/tangential papers assigned lower scores?
+- How much do scores/rankings vary across repeated runs with the same candidates?
+- How often does the screening score disagree with the final ranking score?
+
+Potential improvements:
+
+- lower ranker temperature to `0`
+- cache summaries/rankings to make repeated runs reproducible
+- export both screening and ranking scores
+- add deterministic baseline scores such as BM25/TF-IDF similarity
+- ask the LLM for rubric sub-scores before computing or reporting a final score
+- run multiple rankings and average scores for expensive/high-confidence reports
+
 ### LLM-as-judge evaluation
 
 Optional after JSON export exists. Use another model to judge:
