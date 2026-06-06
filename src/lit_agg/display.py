@@ -59,6 +59,10 @@ def display_results(
         content.append_text(score_text)
         content.append(f" {rp.paper.title}\n", style="bold")
         content.append(f"   {authors}\n", style="dim")
+        content.append(
+            f"   {rp.paper.published.date().isoformat()} · {', '.join(rp.paper.categories)}\n",
+            style="dim",
+        )
         content.append(f"\n   {rp.summary.summary}\n")
         content.append(f"\n   Key: ", style="bold")
         content.append(f"{rp.summary.key_contribution}\n")
