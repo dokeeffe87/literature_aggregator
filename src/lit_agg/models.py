@@ -20,11 +20,19 @@ class Paper(BaseModel):
 
 
 class PaperSummary(BaseModel):
-    """Claude-generated summary of a paper."""
+    """LLM-generated summary of a paper."""
 
     source_id: str
     summary: str = Field(description="2-3 sentence summary")
     key_contribution: str = Field(description="One-line key contribution")
+
+
+class PaperRelevance(BaseModel):
+    """A lightweight relevance score before expensive summarization."""
+
+    source_id: str
+    relevance_score: float = Field(ge=0, le=10, description="Relevance score 0-10")
+    relevance_reason: str
 
 
 class RankedPaper(BaseModel):
