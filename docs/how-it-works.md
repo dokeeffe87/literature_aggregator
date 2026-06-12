@@ -25,8 +25,10 @@ src/lit_agg/
   cli.py                    CLI entry point and pipeline orchestration
   config.py                 YAML/default configuration loading
   display.py                Rich terminal rendering
+  export.py                 JSON run export helpers
   models.py                 Pydantic data models
   profiles.py               Interest profile parsing/validation
+  validation.py             JSON export validation checks
   sources/
     base.py                 PaperSource protocol and SourceError
     arxiv_source.py          arXiv API integration
@@ -102,6 +104,7 @@ Behavior:
 9. Summarize only that shortlist with `summarize_papers()`.
 10. Final-rank the summarized shortlist with `rank_papers()`.
 11. Display only the top `--top` ranked papers.
+12. Optionally write a JSON export with `--output`.
 
 Digest mode separates:
 
@@ -121,7 +124,7 @@ This avoids spending LLM tokens summarizing every paper in a large category wind
 The public `app()` function manually dispatches based on the first command-line argument:
 
 ```python
-_COMMANDS = {"digest", "profiles"}
+_COMMANDS = {"digest", "profiles", "validate"}
 
 if len(sys.argv) > 1 and sys.argv[1] in _COMMANDS:
     command_app(prog_name="lit-agg")
@@ -517,6 +520,45 @@ Possible future improvements for reproducibility and transparency:
 - add deterministic baseline scores such as BM25/TF-IDF similarity
 - add rubric sub-scores, e.g. topical match, methodological relevance, novelty, usefulness
 - run multiple rankings and average scores when higher reliability is worth the extra cost
+
+=======
+## Export and validation
+
+JSON export lives in `src/lit_agg/export.py`.
+
+Both search and digest runs support:
+
+```bash
+--output results/run.json
+```
+
+The export includes:
+
+- schema version and creation time
+- run metadata such as mode, profile/query, categories, models, and digest window
+- pipeline counts such as candidates, screened, summarized, ranked, and displayed
+- final ranked results with paper metadata, summary, ranking score/reason, and optional screening score/reason
+
+Validation lives in `src/lit_agg/validation.py` and is exposed through:
+
+```bash
+lit-agg validate results/run.json
+```
+
+The validator performs deterministic structural and sanity checks:
+
+- valid export shape
+- non-empty result set
+- duplicate paper IDs
+- required paper/summary fields
+- summary/paper source ID consistency
+- relevance scores are numeric and in `[0, 10]`
+- results are sorted descending by relevance score
+- empty or unusually short summaries/key contributions/relevance reasons
+- digest category mismatches
+- lightweight top-k profile-term sanity warnings for built-in profiles
+
+The validator is intentionally conservative: errors indicate structural problems, while warnings flag things worth inspecting but not necessarily wrong.
 
 ## Display
 
