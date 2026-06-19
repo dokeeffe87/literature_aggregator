@@ -1,6 +1,7 @@
 """CLI entry point for lit-agg."""
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 import re
 from textwrap import shorten
 import sys
@@ -11,6 +12,7 @@ from rich.console import Console
 
 from lit_agg.config import Config, load_config
 from lit_agg.display import display_results
+from lit_agg.export import build_run_export, write_json_export
 from lit_agg.models import Paper
 from lit_agg.openai.client import get_client
 from lit_agg.openai.ranker import rank_papers
@@ -19,6 +21,7 @@ from lit_agg.openai.summarizer import summarize_papers
 from lit_agg.profiles import ProfileError, resolve_profile
 from lit_agg.sources import get_default_sources
 from lit_agg.sources.base import SourceError
+from lit_agg.validation import load_json_export, validate_export
 
 search_app = typer.Typer(
     name="lit-agg",
@@ -36,7 +39,7 @@ command_app = typer.Typer(
 )
 console = Console()
 
-_COMMANDS = {"digest", "profiles"}
+_COMMANDS = {"digest", "profiles", "validate"}
 _SINCE_RE = re.compile(r"^(?P<count>\d+)(?P<unit>h|d|w)$")
 # arXiv's website groups papers by announcement date, but the API's
 # submittedDate/published timestamp is usually the previous UTC date for those
@@ -121,6 +124,21 @@ def _dedupe_papers(papers: list[Paper]) -> list[Paper]:
     return deduped
 
 
+def _validate_output_path_or_exit(output: Path | None) -> None:
+    if output and output.suffix.lower() != ".json":
+        console.print("[red]Only JSON export is currently supported; use a .json output path.[/red]")
+        raise typer.Exit(1)
+
+
+def _write_export_or_exit(export: dict, output: Path) -> None:
+    try:
+        write_json_export(export, output)
+    except Exception as e:
+        console.print(f"[red]Failed to write export: {e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Wrote JSON export to {output}[/green]")
+
+
 @search_app.command()
 def main(
     query: Annotated[
@@ -151,6 +169,10 @@ def main(
         Optional[str],
         typer.Option("--api-key", help="OpenAI/Shopify AI Proxy API key (overrides config and env)."),
     ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Write a JSON export of the run."),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Show API usage stats."),
@@ -162,6 +184,7 @@ def main(
     `lit-agg profiles` to list configured profiles.
     """
     config = load_config(config_path)
+    _validate_output_path_or_exit(output)
 
     cat_list = _split_csv(categories) or config.default_categories
     n_papers = max_papers or config.max_papers
@@ -215,8 +238,33 @@ def main(
             verbose=verbose,
         )
 
-    # --- Display ---
+    # --- Display/export ---
     display_results(ranked, query=query)
+
+    if output:
+        export = build_run_export(
+            mode="search",
+            ranked_papers=ranked,
+            run={
+                "mode": "search",
+                "query": query,
+                "categories": cat_list,
+                "max_papers": n_papers,
+                "models": {
+                    "summarize": summarize_model,
+                    "rank": rank_model,
+                    "screen": None,
+                },
+            },
+            counts={
+                "candidates": len(papers),
+                "screened": None,
+                "summarized": len(summaries),
+                "ranked": len(ranked),
+                "displayed": len(ranked),
+            },
+        )
+        _write_export_or_exit(export, output)
 
 
 @command_app.command("profiles")
@@ -251,6 +299,43 @@ def list_profiles(
             f"candidates={profile.weekly_max_candidates or config.digest_max_candidates}"
         )
         console.print(f"  [dim]focus:[/dim] {first_line}")
+
+
+@command_app.command("validate")
+def validate(
+    result_path: Annotated[
+        Path,
+        typer.Argument(help="Path to a lit-agg JSON export."),
+    ],
+) -> None:
+    """Validate a JSON export for structural consistency and basic relevance sanity."""
+    try:
+        data = load_json_export(result_path)
+    except Exception as e:
+        console.print(f"[red]Failed to read export: {e}[/red]")
+        raise typer.Exit(1)
+
+    issues = validate_export(data)
+    errors = [issue for issue in issues if issue.severity == "error"]
+    warnings = [issue for issue in issues if issue.severity == "warning"]
+
+    if not issues:
+        console.print("[green]Validation passed: 0 errors, 0 warnings.[/green]")
+        return
+
+    status_style = "red" if errors else "yellow"
+    console.print(
+        f"[{status_style}]Validation completed: {len(errors)} errors, {len(warnings)} warnings.[/{status_style}]"
+    )
+    for issue in issues:
+        style = "red" if issue.severity == "error" else "yellow"
+        source = f" [dim]({issue.source_id})[/dim]" if issue.source_id else ""
+        console.print(
+            f"[{style}]{issue.severity.upper()}[/{style}] {issue.code}: {issue.message}{source}"
+        )
+
+    if errors:
+        raise typer.Exit(1)
 
 
 @command_app.command("digest")
@@ -299,6 +384,10 @@ def digest(
         Optional[str],
         typer.Option("--api-key", help="OpenAI/Shopify AI Proxy API key (overrides config and env)."),
     ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Write a JSON export of the run."),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Show API usage stats."),
@@ -306,6 +395,7 @@ def digest(
 ) -> None:
     """Create a personalized digest from recent papers in one or more arXiv categories."""
     config = load_config(config_path)
+    _validate_output_path_or_exit(output)
     try:
         profile = resolve_profile(config, profile_name)
     except ProfileError as e:
@@ -402,7 +492,42 @@ def digest(
             verbose=verbose,
         )
 
-    display_results(ranked[:n_top], query=f"{profile.name} digest ({since})")
+    displayed = ranked[:n_top]
+    display_results(displayed, query=f"{profile.name} digest ({since})")
+
+    if output:
+        screening_map = {s.source_id: s for s in screenings}
+        export = build_run_export(
+            mode="digest",
+            ranked_papers=displayed,
+            screening_by_source_id=screening_map,
+            run={
+                "mode": "digest",
+                "profile": profile.name,
+                "profile_description": profile.description,
+                "query": None,
+                "categories": cat_list,
+                "since": since,
+                "arxiv_submitted_start": start,
+                "arxiv_submitted_end": end,
+                "max_candidates": n_candidates,
+                "summary_pool": pool_size,
+                "top": n_top,
+                "models": {
+                    "screen": screen_model,
+                    "summarize": summarize_model,
+                    "rank": rank_model,
+                },
+            },
+            counts={
+                "candidates": len(papers),
+                "screened": len(screenings),
+                "summarized": len(summaries),
+                "ranked": len(ranked),
+                "displayed": len(displayed),
+            },
+        )
+        _write_export_or_exit(export, output)
 
 
 def app() -> None:

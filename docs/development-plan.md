@@ -1,8 +1,8 @@
 # Development plan
 
-This document preserves the next-phase roadmap for `lit-agg` so design ideas do not get lost. It assumes the current Phase 1 digest implementation is in place.
+This document preserves the next-phase roadmap for `lit-agg` so design ideas do not get lost. It assumes the current Phase 1 digest and first-pass validation implementations are in place.
 
-## Current state: Phase 1 complete
+## Current state: Phase 1 digest + validation complete
 
 Implemented capabilities:
 
@@ -18,6 +18,8 @@ Implemented capabilities:
 - digest relevance screening before summarization
 - LLM summarization and final ranking
 - improved arXiv rate-limit/timeout handling
+- JSON export via `--output results/run.json`
+- deterministic export validation via `lit-agg validate results/run.json`
 - basic docs:
   - `docs/how-it-works.md`
   - this development plan
@@ -152,11 +154,13 @@ Possible flags:
 
 ---
 
-## Phase 3: export and caching
+## Phase 3: richer export and caching
 
 Goal: make results reusable, comparable, cheaper, and easier to evaluate.
 
-### 3A: JSON and Markdown export
+Basic JSON export now exists via `--output results/run.json`, and deterministic validation now exists via `lit-agg validate results/run.json`. Remaining export work is mostly about additional formats, richer metadata, and cache integration.
+
+### 3A: Markdown/CSV export and richer JSON
 
 Example UX:
 
@@ -165,7 +169,7 @@ lit-agg digest --profile statistics --since 1w --top 10 --output results/statist
 lit-agg question "..." --output results/question.json
 ```
 
-Proposed module:
+Implemented module:
 
 ```text
 src/lit_agg/export.py
@@ -173,11 +177,11 @@ src/lit_agg/export.py
 
 Export formats:
 
-- JSON: complete structured data for downstream evaluation
-- Markdown: readable digest/report
-- CSV: optional table export for spreadsheet review
+- JSON: implemented for search and digest runs
+- Markdown: readable digest/report, still to add
+- CSV: optional table export for spreadsheet review, still to add
 
-JSON should include:
+JSON includes or should continue to include:
 
 ```json
 {
@@ -520,7 +524,7 @@ Potential improvements after the core workflows are stable:
 ## Recommended immediate next steps
 
 1. Implement Phase 2 research-question mode using LLM query planning plus arXiv candidate retrieval.
-2. Add JSON/Markdown export so results can be saved and evaluated.
+2. Add Markdown export and continue enriching the JSON export/validation schema as new workflows appear.
 3. Add summary caching before doing large repeated runs.
-4. Add basic unit tests for config/profile/windowing/deduplication.
+4. Add basic unit tests for config/profile/windowing/deduplication/export validation.
 5. Revisit local indexing once question mode exposes the practical limits of arXiv keyword search.

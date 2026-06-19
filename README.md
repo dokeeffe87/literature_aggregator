@@ -140,4 +140,21 @@ lit-agg digest --since 2026-06-01 --summary-pool 20
 
 Window note: arxiv.org daily category pages show announcement dates, but the API exposes submitted timestamps. For day/week digest windows (`1d`, `7d`, `1w`) `lit-agg` uses calendar-day windows with a one-day submitted-date lookback so papers shown on arxiv.org as recent are not missed. Hour windows such as `24h` remain exact rolling windows.
 
+## JSON export and validation
+
+Save a structured JSON export with `--output`:
+
+```bash
+lit-agg digest --profile causal-inference --since 1w --top 10 --output results/causal.json
+lit-agg "charged holographic disorder" --max-papers 10 --output results/holography.json
+```
+
+Validate an export for structural consistency and basic relevance sanity:
+
+```bash
+lit-agg validate results/causal.json
+```
+
+Validation checks include duplicate papers, missing fields, score bounds, descending score order, summary/paper ID consistency, short/empty summaries or relevance reasons, category mismatches for digest runs, and lightweight profile-term sanity warnings.
+
 Default settings live in `config.default.yaml` and can be overridden with `~/.config/lit-agg/config.yaml` or `--config`.
